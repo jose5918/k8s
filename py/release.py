@@ -19,7 +19,7 @@ from google.cloud import storage  # pylint: disable=no-name-in-module
 from py import build_and_push_image
 from py import util
 
-REPO_ORG = "tensorflow"
+REPO_ORG = "jose5918"
 REPO_NAME = "k8s"
 
 RESULTS_BUCKET = "mlkube-testing-results"
@@ -155,9 +155,9 @@ def build_operator_image(root_dir, registry, project=None, should_push=True,
   # List of paths to copy relative to root.
   sources = [
       "build/images/tf_operator/Dockerfile",
-      os.path.join(go_path, "bin/tf_operator"),
-      os.path.join(go_path, "bin/e2e"),
-      os.path.join(go_path, "bin/backend"),
+      os.path.join(go_path, "bin/linux_amd64/tf_operator"),
+      os.path.join(go_path, "bin/linux_amd64/e2e"),
+      os.path.join(go_path, "bin/linux_amd64/backend"),
       "dashboard/frontend/build"
   ]
 

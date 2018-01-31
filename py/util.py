@@ -23,7 +23,7 @@ from kubernetes.client import rest
 
 # Default name for the repo organization and name.
 # This should match the values used in Go imports.
-MASTER_REPO_OWNER = "tensorflow"
+MASTER_REPO_OWNER = "jose5918"
 MASTER_REPO_NAME = "k8s"
 
 # TODO(jlewi): Should we stream the output by polling the subprocess?
