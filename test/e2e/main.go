@@ -87,6 +87,17 @@ func run() (string, error) {
 					Replicas:      proto.Int32(1),
 					TFPort:        proto.Int32(2222),
 					TFReplicaType: tfv1alpha1.PS,
+					Template: &v1.PodTemplateSpec{
+						Spec: v1.PodSpec{
+							Containers: []v1.Container{
+								{
+									Name:  "tensorflow",
+									Image: *image,
+								},
+							},
+							RestartPolicy: v1.RestartPolicyOnFailure,
+						},
+					},
 				},
 				{
 					Replicas:      proto.Int32(1),
@@ -111,7 +122,7 @@ func run() (string, error) {
 		},
 	}
 
-	_, err = tfJobClient.TensorflowV1alpha1().TFJobs(Namespace).Create(original)
+	_, err = tfJobClient.KubeflowV1alpha1().TFJobs(Namespace).Create(original)
 
 	if err != nil {
 		log.Errorf("Creating the job failed; %v", err)
@@ -121,7 +132,7 @@ func run() (string, error) {
 	// Wait for the job to complete for up to timeout.
 	var tfJob *tfv1alpha1.TFJob
 	for endTime := time.Now().Add(*timeout); time.Now().Before(endTime); {
-		tfJob, err = tfJobClient.TensorflowV1alpha1().TFJobs(Namespace).Get(name, metav1.GetOptions{})
+		tfJob, err = tfJobClient.KubeflowV1alpha1().TFJobs(Namespace).Get(name, metav1.GetOptions{})
 		if err != nil {
 			log.Warningf("There was a problem getting TFJob: %v; error %v", name, err)
 		}
@@ -178,7 +189,7 @@ func run() (string, error) {
 	}
 
 	// Delete the job and make sure all subresources are properly garbage collected.
-	if err := tfJobClient.TensorflowV1alpha1().TFJobs(Namespace).Delete(name, &metav1.DeleteOptions{}); err != nil {
+	if err := tfJobClient.KubeflowV1alpha1().TFJobs(Namespace).Delete(name, &metav1.DeleteOptions{}); err != nil {
 		log.Fatalf("Failed to delete TFJob %v; error %v", name, err)
 	}
 

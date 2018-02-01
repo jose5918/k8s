@@ -24,7 +24,7 @@ To list jobs
 kubectl get tfjobs
 
 NAME          KINDS
-example-job   TFJob.v1alpha.tensorflow.org
+example-job   TFJob.v1alpha.kubeflow.org
 ```
 
 For additional information about motivation and design for the
@@ -58,9 +58,9 @@ TFJob requires Kubernetes >= 1.8
    CHART=https://storage.googleapis.com/tf-on-k8s-dogfood-releases/latest/tf-job-operator-chart-latest.tgz
    helm install ${CHART} -n tf-job --wait --replace --set rbac.install=true,cloud=<gke or azure>
    ```
-   
+
    * If you aren't running on GKE or Azure don't set cloud.
-   
+
    For non-RBAC enabled clusters:
    ```
    CHART=https://storage.googleapis.com/tf-on-k8s-dogfood-releases/latest/tf-job-operator-chart-latest.tgz
@@ -102,8 +102,8 @@ TFJob requires Kubernetes >= 1.8
 > **Caution: the dashboard is in very early development stage!**
 
 `tensorflow/k8s` also includes a dashboard allowing you to monitor and create `TFJobs` through a web UI.
-To deploy the dashboard, set `dashboard.install` to `true`.  
-Note that by default the dashboard will only be accessible from within the cluster or by proxying, as the default `ServiceType` is `ClusterIP`. 
+To deploy the dashboard, set `dashboard.install` to `true`.
+Note that by default the dashboard will only be accessible from within the cluster or by proxying, as the default `ServiceType` is `ClusterIP`.
 If you wish to expose the dashboard through an external IP, set `dashboard.serviceType` to `LoadBalancer`.
 
 So, for example, if you want to enable the dashboard, and also want to expose it externally, you would do:
@@ -121,7 +121,7 @@ This sould create a service named `tf-job-dashboard` as well as an additional de
 The CRD must be configured properly to work with your specific Kubernetes cluster.
 Since it will be mounting GPU drivers into your pods, the CRD needs to know where to find them on the Kubernetes agents. It also needs to know which environment variable needs to be injected in the pods.
 
-If your Kubernetes cluster is running on GKE or Azure (ACS, AKS, acs-engine) simply pass the provider name to the helm install (or in `values.yaml`).
+If your Kubernetes cluster is running on GKE or Azure (ACS, AKS, acs-engine) simply pass the provider name to the helm install (or in `tf-job-operator-chart/values.yaml`).
 
 For **GKE**:
 ```
@@ -147,7 +147,6 @@ metadata:
 data:
   controller-config-file.yaml: |
     accelerators:
-      grpcServerFilePath: /opt/mlkube/grpc_tensorflow_server/grpc_tensorflow_server.py
       alpha.kubernetes.io/nvidia-gpu:
         volumes:
           - name: <volume-name> # Desired name of the volume, ex: nvidia-libs
@@ -181,7 +180,7 @@ kubectl create -f https://raw.githubusercontent.com/tensorflow/k8s/master/exampl
 In this case the job spec looks like the following
 
 ```
-apiVersion: "tensorflow.org/v1alpha1"
+apiVersion: "kubeflow.org/v1alpha1"
 kind: "TFJob"
 metadata:
   name: "example-job"
@@ -255,7 +254,7 @@ Ensure your K8s cluster is properly configured to use GPUs
 To attach GPUs specify the GPU resource on the container e.g.
 
 ```
-apiVersion: "tensorflow.org/v1alpha1"
+apiVersion: "kubeflow.org/v1alpha1"
 kind: "TFJob"
 metadata:
   name: "tf-smoke-gpu"
@@ -275,15 +274,15 @@ spec:
           restartPolicy: OnFailure
 ```
 
-Follow TensorFlow's [instructions](https://www.tensorflow.org/tutorials/using_gpu)
+Follow TensorFlow's [instructions](https://www.kubeflow.org/tutorials/using_gpu)
 for using GPUs.
 
 ### Requesting a TensorBoard instance
 
 You can also ask the `TFJob` operator to create a TensorBoard instance
-by including a [TensorBoardSpec](https://github.com/tensorflow/k8s/blob/master/pkg/spec/tf_job.go#L103)
+by including a [TensorBoardSpec](https://github.com/tensorflow/k8s/blob/master/pkg/apis/tensorflow/v1alpha1/types.go#L95)
 in your job. The table below describes the important fields in
-[TensorBoardSpec](https://github.com/tensorflow/k8s/blob/master/pkg/spec/tf_job.go#L103).
+[TensorBoardSpec](https://github.com/tensorflow/k8s/blob/master/pkg/apis/tensorflow/v1alpha1/types.go#L95).
 
 | Name | Description | Required | Default |
 |---|---|---|---|
@@ -298,7 +297,7 @@ On Azure you can store your event files on an Azure Files and use
 volumes to make them available to TensorBoard.
 
 ```
-apiVersion: "tensorflow.org/v1alpha1"
+apiVersion: "kubeflow.org/v1alpha1"
 kind: "TFJob"
 metadata:
   name: "tf-smoke-gpu"
@@ -335,7 +334,7 @@ On GKE you can store your event files on GCS and TensorBoard/TensorFlow
 can read/write directly to GCS.
 
 ```
-apiVersion: "tensorflow.org/v1alpha1"
+apiVersion: "kubeflow.org/v1alpha1"
 kind: "TFJob"
 metadata:
   name: "tf-smoke-gpu"
@@ -374,7 +373,7 @@ kubectl proxy
 In a web-browser open up
 
 ```
-http://${PROXY}:8001/api/v1/proxy/namespaces/default/services/tensorboard-${RUNTIMEID}:80/
+http://${PROXY}:8001/api/v1/proxy/namespaces/default/services/tensorboard-${RUNTIME_ID}:80/
 ```
 
 Depending on how you configure the service for TensorBoard and cluster
@@ -391,7 +390,7 @@ kubectl get -o yaml tfjobs $JOB
 Here is sample output for an example job
 
 ```
-apiVersion: tensorflow.org/v1alpha1
+apiVersion: kubeflow.org/v1alpha1
 kind: TFJob
 metadata:
   clusterName: ""
@@ -400,13 +399,12 @@ metadata:
   name: example-job
   namespace: default
   resourceVersion: "1881"
-  selfLink: /apis/tensorflow.org/v1alpha1/namespaces/default/tfjobs/example-job
+  selfLink: /apis/kubeflow.org/v1alpha1/namespaces/default/tfjobs/example-job
   uid: e11f9577-b5e5-11e7-8522-42010a8e01a4
 spec:
   RuntimeId: 76no
   replicaSpecs:
-  - IsDefaultPS: false
-    replicas: 1
+  - replicas: 1
     template:
       metadata:
         creationTimestamp: null
@@ -418,8 +416,7 @@ spec:
         restartPolicy: OnFailure
     tfPort: 2222
     tfReplicaType: MASTER
-  - IsDefaultPS: false
-    replicas: 1
+  - replicas: 1
     template:
       metadata:
         creationTimestamp: null
@@ -431,8 +428,7 @@ spec:
         restartPolicy: OnFailure
     tfPort: 2222
     tfReplicaType: WORKER
-  - IsDefaultPS: true
-    replicas: 2
+  - replicas: 2
     template:
       metadata:
         creationTimestamp: null

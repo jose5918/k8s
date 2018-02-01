@@ -36,6 +36,11 @@ type TFJobList struct {
 	tfJobs []v1alpha1.TFJob `json:"TFJobs"`
 }
 
+// NamepsaceList is a list of namespaces
+type NamespaceList struct {
+	namespaces []v1.Namespace `json:"namespaces"`
+}
+
 // CreateHTTPAPIHandler creates the restful Container and defines the routes the API will serve
 func CreateHTTPAPIHandler(client client.ClientManager) (http.Handler, error) {
 	apiHandler := APIHandler{
@@ -67,6 +72,11 @@ func CreateHTTPAPIHandler(client client.ClientManager) (http.Handler, error) {
 			Writes(TFJobList{}))
 
 	apiV1Ws.Route(
+		apiV1Ws.GET("/tfjob/{namespace}").
+			To(apiHandler.handleGetTFJobs).
+			Writes(TFJobList{}))
+
+	apiV1Ws.Route(
 		apiV1Ws.GET("/tfjob/{namespace}/{tfjob}").
 			To(apiHandler.handleGetTFJobDetail).
 			Writes(TFJobDetail{}))
@@ -86,19 +96,28 @@ func CreateHTTPAPIHandler(client client.ClientManager) (http.Handler, error) {
 			To(apiHandler.handleGetPodLogs).
 			Writes([]byte{}))
 
+	apiV1Ws.Route(
+		apiV1Ws.GET("/namespace").
+		To(apiHandler.handleGetNamespaces).
+		Writes(NamespaceList{}))
+
 	wsContainer.Add(apiV1Ws)
 	return wsContainer, nil
 }
 
 func (apiHandler *APIHandler) handleGetTFJobs(request *restful.Request, response *restful.Response) {
-	//TODO: namespace handling
-	namespace := "default"
-	jobs, err := apiHandler.cManager.TFJobClient.TensorflowV1alpha1().TFJobs(namespace).List(metav1.ListOptions{})
+	namespace := request.PathParameter("namespace")
+	jobs, err := apiHandler.cManager.TFJobClient.KubeflowV1alpha1().TFJobs(namespace).List(metav1.ListOptions{})
+
+	ns := "all"
+	if namespace != "" {
+		ns = namespace
+	}
 	if err != nil {
-		log.Warningf("failed to list TFJobs under namespace %v: %v", namespace, err)
+		log.Warningf("failed to list TFJobs under %v namespace(s): %v", ns, err)
 		response.WriteError(http.StatusInternalServerError, err)
 	} else {
-		log.Infof("successfully listed TFJobs under namespace %v", namespace)
+		log.Infof("successfully listed TFJobs under %v namespace(s)", ns)
 		response.WriteHeaderAndEntity(http.StatusOK, jobs)
 	}
 }
@@ -106,7 +125,7 @@ func (apiHandler *APIHandler) handleGetTFJobs(request *restful.Request, response
 func (apiHandler *APIHandler) handleGetTFJobDetail(request *restful.Request, response *restful.Response) {
 	namespace := request.PathParameter("namespace")
 	name := request.PathParameter("tfjob")
-	job, err := apiHandler.cManager.TFJobClient.TensorflowV1alpha1().TFJobs(namespace).Get(name, metav1.GetOptions{})
+	job, err := apiHandler.cManager.TFJobClient.KubeflowV1alpha1().TFJobs(namespace).Get(name, metav1.GetOptions{})
 	if err != nil {
 		log.Infof("cannot find TFJob %v under namespace %v, error: %v", name, namespace, err)
 		if errors.IsNotFound(err) {
@@ -123,7 +142,7 @@ func (apiHandler *APIHandler) handleGetTFJobDetail(request *restful.Request, res
 
 	if job.Spec.TensorBoard != nil {
 		tbSpec, err := apiHandler.cManager.ClientSet.CoreV1().Services(namespace).List(metav1.ListOptions{
-			LabelSelector: fmt.Sprintf("tensorflow.org=,app=tensorboard,runtime_id=%s", job.Spec.RuntimeId),
+			LabelSelector: fmt.Sprintf("kubeflow.org=,app=tensorboard,runtime_id=%s", job.Spec.RuntimeId),
 		})
 		if err != nil {
 			log.Warningf("failed to list TensorBoard for TFJob %v under namespace %v, error: %v", job.Name, job.Namespace, err)
@@ -143,7 +162,7 @@ func (apiHandler *APIHandler) handleGetTFJobDetail(request *restful.Request, res
 
 	// Get associated pods
 	pods, err := apiHandler.cManager.ClientSet.CoreV1().Pods(namespace).List(metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("tensorflow.org=,runtime_id=%s", job.Spec.RuntimeId),
+		LabelSelector: fmt.Sprintf("kubeflow.org=,runtime_id=%s", job.Spec.RuntimeId),
 	})
 	if err != nil {
 		log.Warningf("failed to list pods for TFJob %v under namespace %v: %v", name, namespace, err)
@@ -162,7 +181,22 @@ func (apiHandler *APIHandler) handleDeploy(request *restful.Request, response *r
 		response.WriteError(http.StatusBadRequest, err)
 		return
 	}
-	j, err := clt.TensorflowV1alpha1().TFJobs(tfJob.Namespace).Create(tfJob)
+
+	_, err := apiHandler.cManager.ClientSet.CoreV1().Namespaces().Get(tfJob.Namespace, metav1.GetOptions{})
+
+	if errors.IsNotFound(err) {
+		// If namespace doesn't exist we create it
+		_, nsErr := apiHandler.cManager.ClientSet.CoreV1().Namespaces().Create(&v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: tfJob.Namespace}})
+		if nsErr != nil {
+			log.Warningf("failed to create namespace %v for TFJob %v: %v", tfJob.Namespace, tfJob.Name, nsErr)
+			response.WriteError(http.StatusInternalServerError, nsErr)
+		}
+	} else if err != nil {
+			log.Warningf("failed to deploy TFJob %v under namespace %v: %v", tfJob.Name, tfJob.Namespace, err)
+			response.WriteError(http.StatusInternalServerError, err)
+	}
+
+	j, err := clt.KubeflowV1alpha1().TFJobs(tfJob.Namespace).Create(tfJob)
 	if err != nil {
 		log.Warningf("failed to deploy TFJob %v under namespace %v: %v", tfJob.Name, tfJob.Namespace, err)
 		response.WriteError(http.StatusInternalServerError, err)
@@ -176,7 +210,7 @@ func (apiHandler *APIHandler) handleDeleteTFJob(request *restful.Request, respon
 	namespace := request.PathParameter("namespace")
 	name := request.PathParameter("tfjob")
 	clt := apiHandler.cManager.TFJobClient
-	err := clt.TensorflowV1alpha1().TFJobs(namespace).Delete(name, &metav1.DeleteOptions{})
+	err := clt.KubeflowV1alpha1().TFJobs(namespace).Delete(name, &metav1.DeleteOptions{})
 	if err != nil {
 		log.Warningf("failed to delete TFJob %v under namespace %v: %v", name, namespace, err)
 		response.WriteError(http.StatusInternalServerError, err)
@@ -196,5 +230,16 @@ func (apiHandler *APIHandler) handleGetPodLogs(request *restful.Request, respons
 	} else {
 		log.Infof("successfully get pod logs for TFJob %v under namespace %v", name, namespace)
 		response.WriteHeaderAndEntity(http.StatusOK, string(logs))
+	}
+}
+
+func (apiHandler *APIHandler) handleGetNamespaces(request *restful.Request, response *restful.Response) {
+	l, err := apiHandler.cManager.ClientSet.CoreV1().Namespaces().List(metav1.ListOptions{})
+	if err != nil {
+		log.Warningf("failed to list namespaces.")
+		response.WriteError(http.StatusInternalServerError, err)
+	} else {
+		log.Infof("sucessfully listed namespaces")
+		response.WriteHeaderAndEntity(http.StatusOK, l)
 	}
 }

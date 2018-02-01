@@ -3,6 +3,7 @@
 
 ```sh
 $ tree -d -I 'vendor|bin|.git'
+.
 ├── build
 │   ├── images
 │   │   └── tf_operator
@@ -23,8 +24,9 @@ $ tree -d -I 'vendor|bin|.git'
 │   └── diagrams
 ├── examples
 │   ├── charts
-│   │   ├── tensorboard
-│   │   └── tf-job-operator-chart
+│   │   └── tensorboard
+│   │       └── templates
+│   ├── crd
 │   ├── gke
 │   │   └── notebook_image
 │   ├── tensorflow-models
@@ -33,7 +35,8 @@ $ tree -d -I 'vendor|bin|.git'
 │   └── tf_sample
 │       └── tf_sample
 ├── hack
-├── py
+│   ├── grpc_tensorflow_server
+│   └── scripts
 ├── pkg
 │   ├── apis
 │   │   └── tensorflow
@@ -41,15 +44,36 @@ $ tree -d -I 'vendor|bin|.git'
 │   │       ├── v1alpha1
 │   │       └── validation
 │   ├── client
+│   │   ├── clientset
+│   │   │   └── versioned
+│   │   │       ├── fake
+│   │   │       ├── scheme
+│   │   │       └── typed
+│   │   │           └── tensorflow
+│   │   │               └── v1alpha1
+│   │   │                   └── fake
+│   │   ├── informers
+│   │   │   └── externalversions
+│   │   │       ├── internalinterfaces
+│   │   │       └── tensorflow
+│   │   │           └── v1alpha1
+│   │   └── listers
+│   │       └── tensorflow
+│   │           └── v1alpha1
 │   ├── controller
-│       └── trainer
+│   ├── trainer
 │   └── util
 │       ├── k8sutil
 │       └── retryutil
+├── py
 ├── test
 │   ├── e2e
 │   └── test-infra
 │       └── airflow
+│           └── dags
+├── tf-job-operator-chart
+│   └── templates
+│       └── tests
 └── version
 
 
@@ -68,7 +92,7 @@ ln -sf ${GIT_TRAINING} ${GOPATH}/src/github.com/tensorflow/k8s
 
 Resolve dependencies (if you don't have glide install, check how to do it [here](https://github.com/Masterminds/glide/blob/master/README.md#install))
 
-install dependencies, `-v` will ignore subpackage vendor
+Install dependencies, `-v` will ignore subpackage vendor
 
 ```sh
 glide install -v
@@ -121,23 +145,14 @@ export MY_POD_NAME=my-pod
   set the corresponding namespace for the resource.
 * TODO(jlewi): Do we still need to set MY_POD_NAME? Why?
 
-Make a copy of `grpc_tensorflow_server.py` and create a config file named `controller-config-file.yaml`:
-
-```sh
-cp hack/grpc_tensorflow_server/grpc_tensorflow_server.py /tmp/grpc_tensorflow_server.py
-
-cat > /tmp/controller-config-file.yaml << EOL
-grpcServerFilePath: /tmp/grpc_tensorflow_server.py
-EOL
-```
-
 Now we are ready to run operator locally:
 
 ```sh
-tf_operator -controller_config_file=/tmp/controller_config_file.yaml
+kubectl create -f examples/crd/crd.yaml
+tf_operator --logtostderr
 ```
 
-The command creates a CRD `tfjobs` and block watching for creation of the resource kind. To verify local
+The first command creates a CRD `tfjobs`. And the second command runs the operator locally. To verify local
 operator is working, create an example job and you should see jobs created by it.
 
 ```sh
