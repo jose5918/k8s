@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	log "github.com/golang/glog"
@@ -28,11 +29,11 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 
-	tfv1alpha1 "github.com/kubeflow/tf-operator/pkg/apis/tensorflow/v1alpha1"
-	"github.com/kubeflow/tf-operator/pkg/util/k8sutil"
+	torchv1alpha1 "github.com/jose5918/pytorch-operator/pkg/apis/pytorch/v1alpha1"
+	"github.com/jose5918/pytorch-operator/pkg/util/k8sutil"
 	// TOOO(jlewi): Rename to apiErrors
-	"github.com/kubeflow/tf-operator/pkg/apis/tensorflow/helper"
-	"github.com/kubeflow/tf-operator/pkg/util"
+	"github.com/jose5918/pytorch-operator/pkg/apis/pytorch/helper"
+	"github.com/jose5918/pytorch-operator/pkg/util"
 )
 
 const (
@@ -40,63 +41,59 @@ const (
 	FailedCreateReason     = "FailedCreate"
 )
 
-// TFReplicaSet is a set of TF processes all acting as the same role (e.g. worker
-type TFReplicaSet struct {
+// PyTorchReplicaSet is a set of PyTorch processes all acting as the same role (e.g. worker
+type PyTorchReplicaSet struct {
 	ClientSet kubernetes.Interface
 	recorder  record.EventRecorder
 	// Job is a pointer to the TrainingJob to which this replica belongs.
 	Job  *TrainingJob
-	Spec tfv1alpha1.TFReplicaSpec
+	Spec torchv1alpha1.PyTorchReplicaSpec
 }
 
-// TFReplicas is an interface for managing a set of replicas.
-type TFReplicaSetInterface interface {
+// PyTorchReplicas is an interface for managing a set of replicas.
+type PyTorchReplicaSetInterface interface {
 	Create() error
 	Delete() error
-	GetStatus() (tfv1alpha1.TFReplicaStatus, error)
+	GetStatus() (torchv1alpha1.PyTorchReplicaStatus, error)
 }
 
-// TFConfig is a struct representing the TensorFlow config. This struct is turned into an environment
+// PyTorchConfig is a struct representing the TensorFlow config. This struct is turned into an environment
 // which is used by TensorFlow processes to configure themselves.
-type TFConfig struct {
-	// Cluster represents a TensorFlow ClusterSpec.
-	// See: https://www.tensorflow.org/api_docs/python/tf/train/ClusterSpechttps://www.tensorflow.org/api_docs/python/tf/train/ClusterSpec
-	Cluster ClusterSpec `json:"cluster"`
-	Task    TaskSpec    `json:"task"`
-	// Environment is used by tensorflow.contrib.learn.python.learn in versions <= 1.3
-	// TODO(jlewi): I don't think it is used in versions TF >- 1.4. So we can eventually get rid of it.
-	Environment string `json:"environment"`
+type PyTorchConfig struct {
+	Cluster     ClusterSpec `json:"cluster"`
+	Task        TaskSpec    `json:"task"`
+	Environment string      `json:"environment"`
 }
 
-func NewTFReplicaSet(clientSet kubernetes.Interface, recorder record.EventRecorder, tfReplicaSpec tfv1alpha1.TFReplicaSpec, job *TrainingJob) (*TFReplicaSet, error) {
-	if tfReplicaSpec.TFReplicaType == tfv1alpha1.MASTER && *tfReplicaSpec.Replicas != 1 {
+func NewPyTorchReplicaSet(clientSet kubernetes.Interface, recorder record.EventRecorder, tfReplicaSpec torchv1alpha1.PyTorchReplicaSpec, job *TrainingJob) (*PyTorchReplicaSet, error) {
+	if tfReplicaSpec.PyTorchReplicaType == torchv1alpha1.MASTER && *tfReplicaSpec.Replicas != 1 {
 		return nil, errors.New("The MASTER must have Replicas = 1")
 	}
 
-	if tfReplicaSpec.TFPort == nil {
-		return nil, errors.New("tfReplicaSpec.TFPort can't be nil.")
+	if tfReplicaSpec.MasterPort == nil {
+		return nil, errors.New("tfReplicaSpec.MasterPort can't be nil.")
 	}
 
-	if tfReplicaSpec.Template == nil && tfReplicaSpec.TFReplicaType != tfv1alpha1.PS {
-		return nil, fmt.Errorf("tfReplicatfv1alpha1.Template can't be nil for replica type %v.", tfReplicaSpec.TFReplicaType)
+	if tfReplicaSpec.Template == nil && tfReplicaSpec.PyTorchReplicaType != torchv1alpha1.PS {
+		return nil, fmt.Errorf("tfReplicatorchv1alpha1.Template can't be nil for replica type %v.", tfReplicaSpec.PyTorchReplicaType)
 	}
 
 	// Make sure the replica type is valid.
-	validReplicaTypes := []tfv1alpha1.TFReplicaType{tfv1alpha1.MASTER, tfv1alpha1.PS, tfv1alpha1.WORKER}
+	validReplicaTypes := []torchv1alpha1.PyTorchReplicaType{torchv1alpha1.MASTER, torchv1alpha1.PS, torchv1alpha1.WORKER}
 
 	isValidReplicaType := false
 	for _, t := range validReplicaTypes {
-		if t == tfReplicaSpec.TFReplicaType {
+		if t == tfReplicaSpec.PyTorchReplicaType {
 			isValidReplicaType = true
 			break
 		}
 	}
 
 	if !isValidReplicaType {
-		return nil, fmt.Errorf("tfReplicaSpec.TFReplicaType is %v but must be one of %v", tfReplicaSpec.TFReplicaType, validReplicaTypes)
+		return nil, fmt.Errorf("tfReplicaSpec.PyTorchReplicaType is %v but must be one of %v", tfReplicaSpec.PyTorchReplicaType, validReplicaTypes)
 	}
 
-	return &TFReplicaSet{
+	return &PyTorchReplicaSet{
 		ClientSet: clientSet,
 		recorder:  recorder,
 		Job:       job,
@@ -105,17 +102,17 @@ func NewTFReplicaSet(clientSet kubernetes.Interface, recorder record.EventRecord
 }
 
 // Labels returns the labels for this replica set.
-func (s *TFReplicaSet) Labels() KubernetesLabels {
+func (s *PyTorchReplicaSet) Labels() KubernetesLabels {
 	return KubernetesLabels(map[string]string{
 		"kubeflow.org": "",
-		"job_type":     string(s.Spec.TFReplicaType),
-		// runtime_id is set by Job.setup, which is called after the TFReplicaSet is created.
+		"job_type":     string(s.Spec.PyTorchReplicaType),
+		// runtime_id is set by Job.setup, which is called after the PyTorchReplicaSet is created.
 		// this is why labels aren't a member variable.
-		"runtime_id":  s.Job.job.Spec.RuntimeId,
-		"tf_job_name": s.Job.job.ObjectMeta.Name})
+		"runtime_id":       s.Job.job.Spec.RuntimeId,
+		"pytorch_job_name": s.Job.job.ObjectMeta.Name})
 }
 
-func (s *TFReplicaSet) Create(config *tfv1alpha1.ControllerConfig) error {
+func (s *PyTorchReplicaSet) Create(config *torchv1alpha1.ControllerConfig, worldSize int32) error {
 	// Create services
 	err := s.SyncServices()
 	if err != nil {
@@ -123,11 +120,11 @@ func (s *TFReplicaSet) Create(config *tfv1alpha1.ControllerConfig) error {
 	}
 
 	// Create pods
-	return s.SyncPods()
+	return s.SyncPods(worldSize)
 }
 
 // CreateServiceWithIndex will create a new service with specify index
-func (s *TFReplicaSet) CreateServiceWithIndex(index int32) (*v1.Service, error) {
+func (s *PyTorchReplicaSet) CreateServiceWithIndex(index int32) (*v1.Service, error) {
 	taskLabels := s.Labels()
 	taskLabels["task_index"] = fmt.Sprintf("%v", index)
 
@@ -145,7 +142,7 @@ func (s *TFReplicaSet) CreateServiceWithIndex(index int32) (*v1.Service, error) 
 			Ports: []v1.ServicePort{
 				{
 					Name: "tf-port",
-					Port: *s.Spec.TFPort,
+					Port: *s.Spec.MasterPort,
 				},
 			},
 		},
@@ -156,7 +153,7 @@ func (s *TFReplicaSet) CreateServiceWithIndex(index int32) (*v1.Service, error) 
 }
 
 // CreatePodWithIndex will create a new pod with specify index
-func (s *TFReplicaSet) CreatePodWithIndex(index int32) (*v1.Pod, error) {
+func (s *PyTorchReplicaSet) CreatePodWithIndex(index int32, worldSize int32) (*v1.Pod, error) {
 	taskLabels := s.Labels()
 	taskLabels["task_index"] = fmt.Sprintf("%v", index)
 
@@ -173,7 +170,14 @@ func (s *TFReplicaSet) CreatePodWithIndex(index int32) (*v1.Pod, error) {
 
 	pod.Spec.SchedulerName = s.Job.SchedulerName()
 
-	// Configure the TFCONFIG environment variable.
+	// Configure the PyTorch distributed environment variables
+	masterPort := strconv.Itoa(s.Spec.MasterPort)
+	masterAddr := s.genName(0)
+	if index == 0 {
+		masterAddr = "localhost"
+	}
+	worldSize := strconv.Itoa(worldSize)
+	rank := strconv.Itoa(index)
 	tfConfig := TFConfig{
 		Cluster: s.Job.ClusterSpec(),
 		Task: TaskSpec{
@@ -195,7 +199,7 @@ func (s *TFReplicaSet) CreatePodWithIndex(index int32) (*v1.Pod, error) {
 		// We can't get c in the loop variable because that would be by value so our modifications
 		// wouldn't have any effect.
 		c := &pod.Spec.Containers[i]
-		if c.Name != tfv1alpha1.DefaultTFContainer {
+		if c.Name != torchv1alpha1.DefaultTFContainer {
 			continue
 		}
 		if len(c.Env) == 0 {
@@ -204,6 +208,22 @@ func (s *TFReplicaSet) CreatePodWithIndex(index int32) (*v1.Pod, error) {
 		c.Env = append(c.Env, v1.EnvVar{
 			Name:  "TF_CONFIG",
 			Value: string(tfConfigJson),
+		})
+		c.Env = append(c.Env, v1.EnvVar{
+			Name:  "MASTER_PORT",
+			Value: masterPort,
+		})
+		c.Env = append(c.Env, v1.EnvVar{
+			Name:  "MASTER_ADDR",
+			Value: masterAddr,
+		})
+		c.Env = append(c.Env, v1.EnvVar{
+			Name:  "WORLD_SIZE",
+			Value: worldSize,
+		})
+		c.Env = append(c.Env, v1.EnvVar{
+			Name:  "RANK",
+			Value: rank,
 		})
 	}
 
@@ -277,7 +297,7 @@ func (s *TFReplicaSet) Delete() error {
 }
 
 // replicaStatusFromPodList returns a status from a list of pods for a job.
-func replicaStatusFromPodList(l v1.PodList, name string) tfv1alpha1.ReplicaState {
+func replicaStatusFromPodList(l v1.PodList, name string) torchv1alpha1.ReplicaState {
 	var latest *v1.Pod
 	for _, i := range l.Items {
 		if latest == nil {
@@ -290,7 +310,7 @@ func replicaStatusFromPodList(l v1.PodList, name string) tfv1alpha1.ReplicaState
 	}
 
 	if latest == nil {
-		return tfv1alpha1.ReplicaStateRunning
+		return torchv1alpha1.ReplicaStateRunning
 	}
 
 	var tfState v1.ContainerState
@@ -311,35 +331,35 @@ func replicaStatusFromPodList(l v1.PodList, name string) tfv1alpha1.ReplicaState
 	}
 
 	if tfState.Running != nil || tfState.Waiting != nil {
-		return tfv1alpha1.ReplicaStateRunning
+		return torchv1alpha1.ReplicaStateRunning
 	}
 
 	if tfState.Terminated != nil {
 		if tfState.Terminated.ExitCode == 0 {
-			return tfv1alpha1.ReplicaStateSucceeded
+			return torchv1alpha1.ReplicaStateSucceeded
 		}
 
 		if isRetryableTerminationState(tfState.Terminated) {
 			// Since its a retryable error just return RUNNING.
 			// We can just let Kubernetes restart the container to retry.
-			return tfv1alpha1.ReplicaStateRunning
+			return torchv1alpha1.ReplicaStateRunning
 		}
 
-		return tfv1alpha1.ReplicaStateFailed
+		return torchv1alpha1.ReplicaStateFailed
 	}
 
-	return tfv1alpha1.ReplicaStateUnknown
+	return torchv1alpha1.ReplicaStateUnknown
 }
 
-func (s *TFReplicaSet) GetSingleReplicaStatus(index int32) tfv1alpha1.ReplicaState {
+func (s *TFReplicaSet) GetSingleReplicaStatus(index int32) torchv1alpha1.ReplicaState {
 	p, err := s.ClientSet.CoreV1().Pods(s.Job.job.ObjectMeta.Namespace).Get(s.genName(index), meta_v1.GetOptions{})
 
 	if err != nil {
-		return tfv1alpha1.ReplicaStateUnknown
+		return torchv1alpha1.ReplicaStateUnknown
 	}
 
 	if v1.PodSucceeded == p.Status.Phase {
-		return tfv1alpha1.ReplicaStateSucceeded
+		return torchv1alpha1.ReplicaStateSucceeded
 	}
 
 	labels := s.Labels()
@@ -347,7 +367,7 @@ func (s *TFReplicaSet) GetSingleReplicaStatus(index int32) tfv1alpha1.ReplicaSta
 	selector, err := labels.ToSelector()
 	if err != nil {
 		log.Errorf("labels.ToSelector() error; %v", err)
-		return tfv1alpha1.ReplicaStateFailed
+		return torchv1alpha1.ReplicaStateFailed
 	}
 
 	// TODO(jlewi): Handle errors. We need to get the pod and looking at recent container exits.
@@ -358,22 +378,22 @@ func (s *TFReplicaSet) GetSingleReplicaStatus(index int32) tfv1alpha1.ReplicaSta
 
 	if err != nil {
 		// TODO(jlewi): Are there errors that should be treated as retryable errors?
-		return tfv1alpha1.ReplicaStateFailed
+		return torchv1alpha1.ReplicaStateFailed
 	}
 
-	status := replicaStatusFromPodList(*l, tfv1alpha1.DefaultTFContainer)
+	status := replicaStatusFromPodList(*l, torchv1alpha1.DefaultTFContainer)
 	return status
 }
 
 // Status returns the status of the replica set.
-func (s *TFReplicaSet) GetStatus() (tfv1alpha1.TFReplicaStatus, error) {
-	status := tfv1alpha1.TFReplicaStatus{
+func (s *TFReplicaSet) GetStatus() (torchv1alpha1.TFReplicaStatus, error) {
+	status := torchv1alpha1.TFReplicaStatus{
 		TFReplicaType:  s.Spec.TFReplicaType,
-		State:          tfv1alpha1.ReplicaStateUnknown,
-		ReplicasStates: make(map[tfv1alpha1.ReplicaState]int),
+		State:          torchv1alpha1.ReplicaStateUnknown,
+		ReplicasStates: make(map[torchv1alpha1.ReplicaState]int),
 	}
 
-	increment := func(state tfv1alpha1.ReplicaState) {
+	increment := func(state torchv1alpha1.ReplicaState) {
 		v, ok := status.ReplicasStates[state]
 		if ok {
 			status.ReplicasStates[state] = v + 1
@@ -389,20 +409,20 @@ func (s *TFReplicaSet) GetStatus() (tfv1alpha1.TFReplicaStatus, error) {
 	// Determine the overall status for the replica set based on the status of the individual
 	// replicas.
 	// If any of the replicas failed mark the set as failed.
-	if _, ok := status.ReplicasStates[tfv1alpha1.ReplicaStateFailed]; ok {
-		status.State = tfv1alpha1.ReplicaStateFailed
+	if _, ok := status.ReplicasStates[torchv1alpha1.ReplicaStateFailed]; ok {
+		status.State = torchv1alpha1.ReplicaStateFailed
 		return status, nil
 	}
 
 	// If any replicas are RUNNING mark it as RUNNING.
-	if _, ok := status.ReplicasStates[tfv1alpha1.ReplicaStateRunning]; ok {
-		status.State = tfv1alpha1.ReplicaStateRunning
+	if _, ok := status.ReplicasStates[torchv1alpha1.ReplicaStateRunning]; ok {
+		status.State = torchv1alpha1.ReplicaStateRunning
 		return status, nil
 	}
 
 	// If all of the replicas succeeded consider it success.
-	if v, ok := status.ReplicasStates[tfv1alpha1.ReplicaStateSucceeded]; ok && int32(v) == *s.Spec.Replicas {
-		status.State = tfv1alpha1.ReplicaStateSucceeded
+	if v, ok := status.ReplicasStates[torchv1alpha1.ReplicaStateSucceeded]; ok && int32(v) == *s.Spec.Replicas {
+		status.State = torchv1alpha1.ReplicaStateSucceeded
 		return status, nil
 	}
 
@@ -410,7 +430,7 @@ func (s *TFReplicaSet) GetStatus() (tfv1alpha1.TFReplicaStatus, error) {
 }
 
 // SyncPods will try to check current pods for this TFReplicaSet and try to make it as desired.
-func (s *TFReplicaSet) SyncPods() error {
+func (s *TFReplicaSet) SyncPods(worldSize int32) error {
 	for index := int32(0); index < *s.Spec.Replicas; index++ {
 
 		// Label to get all pods of this TFReplicaType + index
@@ -437,7 +457,7 @@ func (s *TFReplicaSet) SyncPods() error {
 		if len(pl.Items) == 0 {
 			log.Infof("Pod  not found, create new one.")
 			// Create the pod
-			createdPod, err := s.CreatePodWithIndex(index)
+			createdPod, err := s.CreatePodWithIndex(index, worldSize)
 
 			// If the pod already exists do nothing.
 			if err != nil {

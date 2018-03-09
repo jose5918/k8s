@@ -35,12 +35,12 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 
-	tfv1alpha1 "github.com/kubeflow/tf-operator/pkg/apis/tensorflow/v1alpha1"
-	tfjobclient "github.com/kubeflow/tf-operator/pkg/client/clientset/versioned"
-	kubeflowscheme "github.com/kubeflow/tf-operator/pkg/client/clientset/versioned/scheme"
-	informers "github.com/kubeflow/tf-operator/pkg/client/informers/externalversions"
-	listers "github.com/kubeflow/tf-operator/pkg/client/listers/kubeflow/v1alpha1"
-	"github.com/kubeflow/tf-operator/pkg/trainer"
+	torchv1alpha1 "github.com/jose5918/pytorch-operator/pkg/apis/pytorch/v1alpha1"
+	torchjobclient "github.com/jose5918/pytorch-operator/pkg/client/clientset/versioned"
+	kubeflowscheme "github.com/jose5918/pytorch-operator/pkg/client/clientset/versioned/scheme"
+	informers "github.com/jose5918/pytorch-operator/pkg/client/informers/externalversions"
+	listers "github.com/jose5918/pytorch-operator/pkg/client/listers/kubeflow/v1alpha1"
+	"github.com/jose5918/pytorch-operator/pkg/trainer"
 )
 
 const (
@@ -63,9 +63,9 @@ var (
 type Controller struct {
 	KubeClient   kubernetes.Interface
 	APIExtclient apiextensionsclient.Interface
-	TFJobClient  tfjobclient.Interface
+	TFJobClient  torchjobclient.Interface
 
-	config tfv1alpha1.ControllerConfig
+	config torchv1alpha1.ControllerConfig
 	jobs   map[string]*trainer.TrainingJob
 
 	TFJobLister listers.TFJobLister
@@ -85,8 +85,8 @@ type Controller struct {
 	syncHandler func(jobKey string) (bool, error)
 }
 
-func New(kubeClient kubernetes.Interface, APIExtclient apiextensionsclient.Interface, tfJobClient tfjobclient.Interface,
-	config tfv1alpha1.ControllerConfig, tfJobInformerFactory informers.SharedInformerFactory) (*Controller, error) {
+func New(kubeClient kubernetes.Interface, APIExtclient apiextensionsclient.Interface, tfJobClient torchjobclient.Interface,
+	config torchv1alpha1.ControllerConfig, tfJobInformerFactory informers.SharedInformerFactory) (*Controller, error) {
 	tfJobInformer := tfJobInformerFactory.Kubeflow().V1alpha1().TFJobs()
 
 	kubeflowscheme.AddToScheme(scheme.Scheme)
@@ -113,7 +113,7 @@ func New(kubeClient kubernetes.Interface, APIExtclient apiextensionsclient.Inter
 		cache.FilteringResourceEventHandler{
 			FilterFunc: func(obj interface{}) bool {
 				switch t := obj.(type) {
-				case *tfv1alpha1.TFJob:
+				case *torchv1alpha1.TFJob:
 					log.Debugf("filter tfjob name: %v", t.Name)
 					return true
 				default:
@@ -251,7 +251,7 @@ func (c *Controller) syncTFJob(key string) (bool, error) {
 
 	// TODO(jlewi): This logic will need to change when/if we get rid of phases and move to conditions. At that
 	// case we should forget about a job when the appropriate condition is reached.
-	if tfJob.Status.Phase == tfv1alpha1.TFJobPhaseCleanUp {
+	if tfJob.Status.Phase == torchv1alpha1.TFJobPhaseCleanUp {
 		return true, nil
 	} else {
 		return false, nil

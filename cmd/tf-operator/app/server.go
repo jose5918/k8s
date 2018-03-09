@@ -31,14 +31,14 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/client-go/tools/record"
 
+	"github.com/jose5918/pytorch-operator/pkg/apis/pytorch/v1alpha1"
+	"github.com/jose5918/pytorch-operator/pkg/util"
+	"github.com/jose5918/pytorch-operator/pkg/util/k8sutil"
 	"github.com/kubeflow/tf-operator/cmd/tf-operator/app/options"
-	"github.com/kubeflow/tf-operator/pkg/apis/tensorflow/v1alpha1"
 	tfjobclient "github.com/kubeflow/tf-operator/pkg/client/clientset/versioned"
 	"github.com/kubeflow/tf-operator/pkg/client/clientset/versioned/scheme"
 	informers "github.com/kubeflow/tf-operator/pkg/client/informers/externalversions"
 	"github.com/kubeflow/tf-operator/pkg/controller"
-	"github.com/kubeflow/tf-operator/pkg/util"
-	"github.com/kubeflow/tf-operator/pkg/util/k8sutil"
 	"github.com/kubeflow/tf-operator/version"
 )
 
