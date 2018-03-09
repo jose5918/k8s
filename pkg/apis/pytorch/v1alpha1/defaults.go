@@ -31,7 +31,7 @@ func SetDefaults_PyTorchJob(obj *PyTorchJob) {
 		c.PyTorchImage = DefaultPyTorchImage
 	}
 
-	// Check that each replica has a TensorFlow container.
+	// Check that each replica has a pytorch container.
 	for _, r := range c.ReplicaSpecs {
 
 		if r.MasterPort == nil {
