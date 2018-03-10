@@ -30,15 +30,15 @@ import (
 	"k8s.io/client-go/tools/record"
 
 	torchv1alpha1 "github.com/jose5918/pytorch-operator/pkg/apis/pytorch/v1alpha1"
+	pytorchJobFake "github.com/jose5918/pytorch-operator/pkg/client/clientset/versioned/fake"
 	"github.com/jose5918/pytorch-operator/pkg/util"
-	torchJobFake "github.com/kubeflow/tf-operator/pkg/client/clientset/versioned/fake"
 )
 
 var (
 	groupVersionKind = schema.GroupVersionKind{
 		Group:   torchv1alpha1.GroupName,
 		Version: torchv1alpha1.GroupVersion,
-		Kind:    torchv1alpha1.PyTorchJobResourceKind,
+		Kind:    torchv1alpha1.ResourceKind,
 	}
 )
 
@@ -56,8 +56,8 @@ func TestPyTorchReplicaSet(t *testing.T) {
 			RuntimeId: "some-runtime",
 			ReplicaSpecs: []*torchv1alpha1.PyTorchReplicaSpec{
 				{
-					Replicas:    proto.Int32(2),
-					PyTorchPort: proto.Int32(10),
+					Replicas:   proto.Int32(2),
+					MasterPort: proto.Int32(10),
 					Template: &v1.PodTemplateSpec{
 						Spec: v1.PodSpec{
 							Containers: []v1.Container{
@@ -75,7 +75,7 @@ func TestPyTorchReplicaSet(t *testing.T) {
 	}
 
 	recorder := record.NewFakeRecorder(100)
-	job, err := initJob(clientSet, &torchJobFake.Clientset{}, recorder, jobSpec)
+	job, err := initJob(clientSet, &pytorchJobFake.Clientset{}, recorder, jobSpec)
 
 	if err != nil {
 		t.Fatalf("initJob failed: %v", err)
@@ -86,8 +86,8 @@ func TestPyTorchReplicaSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPyTorchReplicaSet failed: %v", err)
 	}
-
-	if err := replica.Create(&torchv1alpha1.ControllerConfig{}); err != nil {
+	worldSize := int32(2)
+	if err := replica.Create(&torchv1alpha1.ControllerConfig{}, worldSize); err != nil {
 		t.Fatalf("replica.Create() error; %v", err)
 	}
 
@@ -127,7 +127,7 @@ func TestPyTorchReplicaSet(t *testing.T) {
 			t.Fatalf("Service Labels; Got %v Want: %v", s.ObjectMeta.Labels, expectedLabels)
 		}
 
-		name := fmt.Sprintf("some-job-ps-some-runtime-%v", index)
+		name := fmt.Sprintf("some-job-worker-some-runtime-%v", index)
 		if s.ObjectMeta.Name != name {
 			t.Fatalf("Job.ObjectMeta.Name = %v; want %v", s.ObjectMeta.Name, name)
 		}
@@ -169,7 +169,7 @@ func TestPyTorchReplicaSet(t *testing.T) {
 		}
 
 		c := p.Spec.Containers[0]
-		if len(c.Env) != 1 {
+		if len(c.Env) != 5 {
 			t.Fatalf("Expected 1 environment variable got %v", len(c.Env))
 		}
 

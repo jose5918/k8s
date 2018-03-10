@@ -33,7 +33,7 @@ ${CODEGEN_PKG}/generate-groups.sh "defaulter,deepcopy,client,informer,lister" \
  pytorch:v1alpha1 \
  --go-header-file ${SCRIPT_ROOT}/hack/boilerplate/boilerplate.go.txt
 
- defaulter-gen --input-dirs github.com/jose5918/pytorch-operator/pkg/apis/pytorch/v1alpha1 \
+ ${GOPATH}/bin/defaulter-gen --input-dirs github.com/jose5918/pytorch-operator/pkg/apis/pytorch/v1alpha1 \
  -O zz_generated.defaults \
  --go-header-file ./hack/../hack/boilerplate/boilerplate.go.txt  \
  --output-package github.com/jose5918/pytorch-operator/pkg/apis/pytorch/v1alpha1

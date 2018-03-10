@@ -208,8 +208,8 @@ func TestAddAccelertor(t *testing.T) {
 			expected: &torchv1.PyTorchJobSpec{
 				ReplicaSpecs: []*torchv1.PyTorchReplicaSpec{
 					{
-						Replicas:    proto.Int32(2),
-						PyTorchPort: proto.Int32(10),
+						Replicas:   proto.Int32(2),
+						MasterPort: proto.Int32(10),
 						Template: &v1.PodTemplateSpec{
 							Spec: v1.PodSpec{
 								Containers: []v1.Container{

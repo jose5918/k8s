@@ -1,6 +1,6 @@
 # WIP
 apiVersion: "kubeflow.org/v1alpha1"
-kind: "PytorchJob"
+kind: "PyTorchJob"
 metadata:
   name: "example-job"
 spec:
@@ -8,44 +8,48 @@ spec:
   masterPort: "23456"
   replicaSpecs:
     - replicas: 1
-      ReplicaType: MASTER
+      replicaType: MASTER
       template:
         spec:
           containers:
-            - image: pytorch/pytorch:latest
-              name: pytorch
-              imagePullPolicy: IfNotPresent
+          - image: pytorch/pytorch:latest
+            imagePullPolicy: IfNotPresent
+            name: pytorch
+            volumeMounts:
+              - name: training-result
+                mountPath: /tmp/result
+              - name: entrypoint
+                mountPath: /tmp/entrypoint
+            command: [/tmp/entrypoint/dist_train.py]
+          restartPolicy: OnFailure
+          volumes:
+            - name: training-result
+              emptyDir: {}
+            - name: entrypoint
+              configMap:
+                name: dist-train
+                defaultMode: 0755
           restartPolicy: OnFailure
     - replicas: 1
-      ReplicaType: WORKER
+      replicaType: WORKER
       template:
         spec:
           containers:
-            - image: pytorch/pytorch:latest
-              name: pytorch
+          - image: pytorch/pytorch:latest
+            imagePullPolicy: IfNotPresent
+            name: pytorch
+            volumeMounts:
+              - name: training-result
+                mountPath: /tmp/result
+              - name: entrypoint
+                mountPath: /tmp/entrypoint
+            command: [/tmp/entrypoint/dist_train.py]
           restartPolicy: OnFailure
-
-apiVersion: "kubeflow.org/v1alpha1"
-kind: "TFJob"
-metadata:
-  name: "example-job"
-spec:
-  replicaSpecs:
-    - replicas: 1
-      tfReplicaType: MASTER
-      template:
-        spec:
-          containers:
-            - image: gcr.io/tf-on-k8s-dogfood/tf_sample:dc944ff
-              name: tensorflow
+          volumes:
+            - name: training-result
+              emptyDir: {}
+            - name: entrypoint
+              configMap:
+                name: dist-train
+                defaultMode: 0755
           restartPolicy: OnFailure
-    - replicas: 1
-      tfReplicaType: WORKER
-      template:
-        spec:
-          containers:
-            - image: gcr.io/tf-on-k8s-dogfood/tf_sample:dc944ff
-              name: tensorflow
-          restartPolicy: OnFailure
-    - replicas: 2
-      tfReplicaType: PS

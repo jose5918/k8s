@@ -54,7 +54,7 @@ func TestSetDefaults_PyTorchJob(t *testing.T) {
 					ReplicaSpecs: []*PyTorchReplicaSpec{
 						{
 							Replicas:   proto.Int32(1),
-							MasterPort: proto.Int32(2222),
+							MasterPort: proto.Int32(23456),
 							Template: &v1.PodTemplateSpec{
 								Spec: v1.PodSpec{
 									Containers: []v1.Container{
@@ -85,7 +85,7 @@ func TestSetDefaults_PyTorchJob(t *testing.T) {
 							PyTorchReplicaType: WORKER,
 						},
 					},
-					PyTorchImage: "tensorflow/tensorflow:1.3.0",
+					PyTorchImage: "pytorch/pytorch:v0.2",
 				},
 			},
 			expected: &PyTorchJob{
@@ -93,11 +93,11 @@ func TestSetDefaults_PyTorchJob(t *testing.T) {
 					ReplicaSpecs: []*PyTorchReplicaSpec{
 						{
 							Replicas:           proto.Int32(1),
-							MasterPort:         proto.Int32(2222),
+							MasterPort:         proto.Int32(23456),
 							PyTorchReplicaType: WORKER,
 						},
 					},
-					PyTorchImage: "tensorflow/tensorflow:1.3.0",
+					PyTorchImage: "pytorch/pytorch:v0.2",
 					TerminationPolicy: &TerminationPolicySpec{
 						Master: &MasterSpec{
 							ReplicaName: "MASTER",

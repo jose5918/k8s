@@ -95,8 +95,8 @@ type PyTorchReplicaSpec struct {
 	Replicas *int32              `json:"replicas,omitempty" protobuf:"varint,1,opt,name=replicas"`
 	Template *v1.PodTemplateSpec `json:"template,omitempty" protobuf:"bytes,3,opt,name=template"`
 	// MasterPort is the port to use for PyTorch services.
-	MasterPort         *int32 `json:"tfPort,omitempty" protobuf:"varint,1,opt,name=tfPort"`
-	PyTorchReplicaType `json:"tfReplicaType"`
+	MasterPort         *int32 `json:"masterPort,omitempty" protobuf:"varint,1,opt,name=masterPort"`
+	PyTorchReplicaType `json:"replicaType"`
 }
 
 type PyTorchJobPhase string

@@ -28,7 +28,7 @@ var (
 	groupVersionKind = schema.GroupVersionKind{
 		Group:   torchv1.GroupName,
 		Version: torchv1.GroupVersion,
-		Kind:    torchv1.PyTorchJobResourceKind,
+		Kind:    torchv1.ResourceKind,
 	}
 )
 

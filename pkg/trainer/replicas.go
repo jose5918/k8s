@@ -74,12 +74,8 @@ func NewPyTorchReplicaSet(clientSet kubernetes.Interface, recorder record.EventR
 		return nil, errors.New("tfReplicaSpec.MasterPort can't be nil.")
 	}
 
-	if tfReplicaSpec.Template == nil && tfReplicaSpec.PyTorchReplicaType != torchv1alpha1.PS {
-		return nil, fmt.Errorf("tfReplicatorchv1alpha1.Template can't be nil for replica type %v.", tfReplicaSpec.PyTorchReplicaType)
-	}
-
 	// Make sure the replica type is valid.
-	validReplicaTypes := []torchv1alpha1.PyTorchReplicaType{torchv1alpha1.MASTER, torchv1alpha1.PS, torchv1alpha1.WORKER}
+	validReplicaTypes := []torchv1alpha1.PyTorchReplicaType{torchv1alpha1.MASTER, torchv1alpha1.WORKER}
 
 	isValidReplicaType := false
 	for _, t := range validReplicaTypes {
@@ -171,17 +167,16 @@ func (s *PyTorchReplicaSet) CreatePodWithIndex(index int32, worldSize int32) (*v
 	pod.Spec.SchedulerName = s.Job.SchedulerName()
 
 	// Configure the PyTorch distributed environment variables
-	masterPort := strconv.Itoa(s.Spec.MasterPort)
-	masterAddr := s.genName(0)
+	masterPort := strconv.Itoa(int(*s.Spec.MasterPort))
+	masterAddr := fmt.Sprintf("%v-%v-%v-%v", fmt.Sprintf("%.40s", s.Job.job.ObjectMeta.Name), "master", s.Job.job.Spec.RuntimeId, 0)
 	if index == 0 {
 		masterAddr = "localhost"
 	}
-	worldSize := strconv.Itoa(worldSize)
-	rank := strconv.Itoa(index)
-	tfConfig := TFConfig{
+	rank := strconv.Itoa(int(index))
+	tfConfig := PyTorchConfig{
 		Cluster: s.Job.ClusterSpec(),
 		Task: TaskSpec{
-			Type:  strings.ToLower(string(s.Spec.TFReplicaType)),
+			Type:  strings.ToLower(string(s.Spec.PyTorchReplicaType)),
 			Index: int(index),
 		},
 		// We need to set environment to cloud  otherwise it will default to local which isn't what we want.
@@ -194,12 +189,13 @@ func (s *PyTorchReplicaSet) CreatePodWithIndex(index int32, worldSize int32) (*v
 		return nil, err
 	}
 
+	// TODO(jose5918) Do not need TF_CONFIG but leaving for POC
 	// Add TF_CONFIG environment variable.
 	for i, _ := range pod.Spec.Containers {
 		// We can't get c in the loop variable because that would be by value so our modifications
 		// wouldn't have any effect.
 		c := &pod.Spec.Containers[i]
-		if c.Name != torchv1alpha1.DefaultTFContainer {
+		if c.Name != torchv1alpha1.DefaultPyTorchContainer {
 			continue
 		}
 		if len(c.Env) == 0 {
@@ -219,7 +215,7 @@ func (s *PyTorchReplicaSet) CreatePodWithIndex(index int32, worldSize int32) (*v
 		})
 		c.Env = append(c.Env, v1.EnvVar{
 			Name:  "WORLD_SIZE",
-			Value: worldSize,
+			Value: strconv.Itoa(int(worldSize)),
 		})
 		c.Env = append(c.Env, v1.EnvVar{
 			Name:  "RANK",
@@ -232,7 +228,7 @@ func (s *PyTorchReplicaSet) CreatePodWithIndex(index int32, worldSize int32) (*v
 }
 
 // Delete deletes the replicas
-func (s *TFReplicaSet) Delete() error {
+func (s *PyTorchReplicaSet) Delete() error {
 	selector, err := s.Labels().ToSelector()
 	if err != nil {
 		return err
@@ -351,7 +347,7 @@ func replicaStatusFromPodList(l v1.PodList, name string) torchv1alpha1.ReplicaSt
 	return torchv1alpha1.ReplicaStateUnknown
 }
 
-func (s *TFReplicaSet) GetSingleReplicaStatus(index int32) torchv1alpha1.ReplicaState {
+func (s *PyTorchReplicaSet) GetSingleReplicaStatus(index int32) torchv1alpha1.ReplicaState {
 	p, err := s.ClientSet.CoreV1().Pods(s.Job.job.ObjectMeta.Namespace).Get(s.genName(index), meta_v1.GetOptions{})
 
 	if err != nil {
@@ -381,16 +377,16 @@ func (s *TFReplicaSet) GetSingleReplicaStatus(index int32) torchv1alpha1.Replica
 		return torchv1alpha1.ReplicaStateFailed
 	}
 
-	status := replicaStatusFromPodList(*l, torchv1alpha1.DefaultTFContainer)
+	status := replicaStatusFromPodList(*l, torchv1alpha1.DefaultPyTorchContainer)
 	return status
 }
 
 // Status returns the status of the replica set.
-func (s *TFReplicaSet) GetStatus() (torchv1alpha1.TFReplicaStatus, error) {
-	status := torchv1alpha1.TFReplicaStatus{
-		TFReplicaType:  s.Spec.TFReplicaType,
-		State:          torchv1alpha1.ReplicaStateUnknown,
-		ReplicasStates: make(map[torchv1alpha1.ReplicaState]int),
+func (s *PyTorchReplicaSet) GetStatus() (torchv1alpha1.PyTorchReplicaStatus, error) {
+	status := torchv1alpha1.PyTorchReplicaStatus{
+		PyTorchReplicaType: s.Spec.PyTorchReplicaType,
+		State:              torchv1alpha1.ReplicaStateUnknown,
+		ReplicasStates:     make(map[torchv1alpha1.ReplicaState]int),
 	}
 
 	increment := func(state torchv1alpha1.ReplicaState) {
@@ -429,13 +425,18 @@ func (s *TFReplicaSet) GetStatus() (torchv1alpha1.TFReplicaStatus, error) {
 	return status, nil
 }
 
-// SyncPods will try to check current pods for this TFReplicaSet and try to make it as desired.
-func (s *TFReplicaSet) SyncPods(worldSize int32) error {
+// SyncPods will try to check current pods for this PyTorchReplicaSet and try to make it as desired.
+func (s *PyTorchReplicaSet) SyncPods(worldSize int32) error {
 	for index := int32(0); index < *s.Spec.Replicas; index++ {
 
-		// Label to get all pods of this TFReplicaType + index
+		// Label to get all pods of this PyTorchReplicaType + index
 		labels := s.Labels()
 		labels["task_index"] = fmt.Sprintf("%v", index)
+		rank := index
+		if labels["job_type"] == "WORKER" {
+			rank = index + 1
+		}
+		labels["task_index"] = fmt.Sprintf("%v", rank)
 
 		labelSelector, err := labels.ToSelector()
 		if err != nil {
@@ -443,21 +444,20 @@ func (s *TFReplicaSet) SyncPods(worldSize int32) error {
 		}
 
 		// Filter the unactive pods
-		fieldSelector := "status.phase!=" + string(v1.PodFailed) +
-			",deletionTimestamp!=nil"
+		fieldSelector := "status.phase!=" + string(v1.PodFailed)
+		//",deletionTimestamp!=nil"
 
 		options := meta_v1.ListOptions{
 			LabelSelector: labelSelector,
 			FieldSelector: fieldSelector,
 		}
-
 		// List to get pods
 		pl, err := s.ClientSet.CoreV1().Pods(s.Job.job.ObjectMeta.Namespace).List(options)
 
 		if len(pl.Items) == 0 {
 			log.Infof("Pod  not found, create new one.")
 			// Create the pod
-			createdPod, err := s.CreatePodWithIndex(index, worldSize)
+			createdPod, err := s.CreatePodWithIndex(rank, worldSize)
 
 			// If the pod already exists do nothing.
 			if err != nil {
@@ -482,8 +482,8 @@ func (s *TFReplicaSet) SyncPods(worldSize int32) error {
 	return nil
 }
 
-// SyncServices will try to check current services for this TFReplicaSet and try to make it as desired.
-func (s *TFReplicaSet) SyncServices() error {
+// SyncServices will try to check current services for this PyTorchReplicaSet and try to make it as desired.
+func (s *PyTorchReplicaSet) SyncServices() error {
 	for index := int32(0); index < *s.Spec.Replicas; index++ {
 		_, err := s.ClientSet.CoreV1().Services(s.Job.job.ObjectMeta.Namespace).Get(s.genName(index), meta_v1.GetOptions{})
 		if err != nil && k8s_errors.IsNotFound(err) {
@@ -514,19 +514,19 @@ func (s *TFReplicaSet) SyncServices() error {
 	return nil
 }
 
-func (s *TFReplicaSet) genName(index int32) string {
+func (s *PyTorchReplicaSet) genName(index int32) string {
 	// Truncate tfjob name to 40 characters
 	// The whole job name should be compliant with the DNS_LABEL spec, up to a max length of 63 characters
 	// Thus genName(40 chars)-replicaType(6 chars)-runtimeId(4 chars)-index(4 chars), also leaving some spaces
 	// See https://github.com/kubernetes/community/blob/master/contributors/design-proposals/architecture/identifiers.md
-	return fmt.Sprintf("%v-%v-%v-%v", fmt.Sprintf("%.40s", s.Job.job.ObjectMeta.Name), strings.ToLower(string(s.Spec.TFReplicaType)), s.Job.job.Spec.RuntimeId, index)
+	return fmt.Sprintf("%v-%v-%v-%v", fmt.Sprintf("%.40s", s.Job.job.ObjectMeta.Name), strings.ToLower(string(s.Spec.PyTorchReplicaType)), s.Job.job.Spec.RuntimeId, index)
 }
 
-func (s *TFReplicaSet) genPodName(index int32) string {
+func (s *PyTorchReplicaSet) genPodName(index int32) string {
 	// Generate a new pod name with random string
 	return s.genName(index) + "-" + util.RandString(5)
 }
 
-func (s *TFReplicaSet) defaultPSConfigMapName() string {
+func (s *PyTorchReplicaSet) defaultPSConfigMapName() string {
 	return fmt.Sprintf("cm-ps-%v", s.Job.job.Spec.RuntimeId)
 }

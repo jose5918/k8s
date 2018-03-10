@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package trainer is to manage TensorFlow training jobs.
+// Package trainer is to manage pytorch training jobs.
 package trainer
 
 import (
@@ -55,6 +55,7 @@ type TrainingJob struct {
 	memberCounter int
 }
 
+// TODO(jose5918): We don't really need the cluster spec for this operator but no harm in leaving it for POC
 // ClusterSpec represents a cluster TensorFlow specification.
 // https://www.tensorflow.org/deploy/distributed#create_a_tftrainclusterspec_to_describe_the_cluster
 // It is a map from job names to network addresses.
@@ -109,10 +110,11 @@ func (j *TrainingJob) ClusterSpec() ClusterSpec {
 
 // createResources creates all the replicas if requested
 func (j *TrainingJob) createResources(config *torchv1alpha1.ControllerConfig) error {
+	// TODO(jose5918) Need to figure out where it is best to add worldSize logic
 	// Get PyTorch worldSize by adding replicas
-	worldSize := 0
+	worldSize := int32(0)
 	for _, r := range j.Replicas {
-		worldSize = worldSize + r.Spec.Replicas
+		worldSize = worldSize + *r.Spec.Replicas
 	}
 	for _, r := range j.Replicas {
 		if err := r.Create(config, worldSize); err != nil {
@@ -156,7 +158,7 @@ func (j *TrainingJob) GetStatus() (torchv1alpha1.State, []*torchv1alpha1.PyTorch
 		replicaStatuses = append(replicaStatuses, &rStatus)
 
 		if string(r.Spec.PyTorchReplicaType) == master.ReplicaName {
-			masterState = r.GetSingleReplicaStatus(int32(master.ReplicaIndex))
+			masterState = r.GetSingleReplicaStatus(int32(master.ReplicaRank))
 		}
 	}
 
@@ -366,10 +368,16 @@ func (j *TrainingJob) Reconcile(config *torchv1alpha1.ControllerConfig) error {
 			log.Infof("Job %v status=%v", j.job.ObjectMeta.Name, util.Pformat(j.status))
 		}
 	}
+	// TODO(jose5918) Need to figure out where it is best to add worldSize logic
+	// Get PyTorch worldSize by adding replicas
+	worldSize := int32(0)
+	for _, r := range j.Replicas {
+		worldSize = worldSize + *r.Spec.Replicas
+	}
 
 	// sync pods
 	for _, rc := range j.Replicas {
-		err := rc.SyncPods()
+		err := rc.SyncPods(worldSize)
 		if err != nil {
 			log.Errorf("SyncPods error: %v", err)
 		}
